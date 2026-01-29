@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agora – Application de tutorat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <script type="text/babel">
+  const { useState, useEffect, useMemo } = React;
+
+  const API_BASE = 'http://localhost:3001/api';
+
+  function LIcon({ name, className = "" }) {
+    const svg = useMemo(() => {
+      try {
+        const icon = lucide?.icons?.[name];
+        if (!icon) return "";
+        return icon.toSvg({ class: className });
+      } catch (e) {
+        return "";
+      }
+    }, [name, className]);
+
+    if (!svg) return null;
+    return <span dangerouslySetInnerHTML={{ __html: svg }} aria-hidden="true" />;
+  }
+
+  const CLASS_LEVELS = ['2nde', '1ère', 'Terminale'];
+  const SUBJECTS = ['Mathématiques', 'Physique-Chimie', 'Français', 'Anglais', 'Histoire-Géo', 'SVT'];
+  const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+  const TIME_SLOTS = [
+    { id: 'M1', label: '08h-09h' },
+    { id: 'M2', label: '09h-10h' },
+    { id: 'M3', label: '10h-11h' },
+    { id: 'M4', label: '11h-12h' },
+    { id: 'S1', label: '13h-14h' },
+    { id: 'S2', label: '14h-15h' },
+    { id: 'S3', label: '15h-16h' },
+    { id: 'S4', label: '16h-17h' },
+  ];
+  const getLevelValue = (l) => (l === 'Terminale' ? 3 : l === '1ère' ? 2 : 1);
+
+  const BADGE_COLORS = {
+    blue: "bg-blue-100 text-blue-800",
+    green: "bg-green-100 text-green-800",
+    red: "bg-red-100 text-red-800",
+    gray: "bg-gray-100 text-gray-800",
+    purple: "bg-purple-100 text-purple-800",
+    yellow: "bg-yellow-100 text-yellow-800"
+  };
+
+  function Badge({ children, color = "blue" }) {
+    const cls = BADGE_COLORS[color] || BADGE_COLORS.blue;
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{children}</span>;
+  }
+
+  function Button({ onClick, variant = "primary", className = "", children, disabled = false, type = "button" }) {
+    const baseStyle = "px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2";
+    const variants = {
+      primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm",
+      secondary: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50",
+      danger: "bg-red-50 text-red-600 hover:bg-red-100",
+      success: "bg-emerald-600 text-white hover:bg-emerald-700"
+    };
+    return (
+      <button type={type} onClick={onClick} disabled={disabled}
+        className={`${baseStyle} ${variants[variant] || variants.primary} ${disabled ? "opacity-50 cursor-not-allowed" : ""} ${className}`}>
+        {children}
+      </button>
+    );
+  }
+
+  async function apiCall(endpoint, options = {}) {
+    const token = localStorage.getItem('accessToken');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    };
+
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Erreur serveur' }));
+      throw new Error(error.error || 'Erreur serveur');
+    }
+
+    return response.json().catch(() => ({}));
+  }
+
+  function LoginScreen({ onLogin }) {
+    const [isRegister, setIsRegister] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [classLevel, setClassLevel] = useState(CLASS_LEVELS[0]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
+
+    const handleLogin = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      setError('');
+      try {
+        const data = await apiCall('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+        localStorage.setItem('accessToken', data.accessToken);
+        onLogin(data.user);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const handleRegister = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      setError('');
+      try {
+        const data = await apiCall('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, firstName, lastName, classLevel, specialties: [], options: [] }),
+        });
+        localStorage.setItem('accessToken', data.accessToken);
+        setMessage('Compte créé! Veuillez vérifier votre email pour activer votre compte.');
+        setTimeout(() => onLogin(data.user), 2000);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-white flex flex-col justify-center items-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+          <div className="text-center mb-8">
+            <div className="inline-flex bg-indigo-600 p-3 rounded-xl mb-4">
+              <LIcon name="book-open" className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">Bienvenue sur Agora</h1>
+            <p className="text-gray-500 mt-2">{isRegister ? 'Créez votre compte' : 'Connectez-vous'}</p>
+          </div>
+
+          {message && (
+            <div className="bg-green-50 text-green-800 p-4 rounded-lg mb-4">
+              {message}
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 text-red-800 p-4 rounded-lg mb-4">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={isRegister ? handleRegister : handleLogin} className="space-y-4">
+            {isRegister && (
+              <>
+                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Prénom" required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Nom" required
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+                <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                  {CLASS_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </>
+            )}
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email" required
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="Mot de passe" required
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+            
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? 'Chargement...' : (isRegister ? 'Créer un compte' : 'Se connecter')}
+            </Button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button onClick={() => { setIsRegister(!isRegister); setError(''); setMessage(''); }}
+              className="text-indigo-600 hover:underline">
+              {isRegister ? 'Déjà un compte ? Se connecter' : 'Pas de compte ? S\'inscrire'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function ChatInterface({ request, currentUser, onBack }) {
+    const [messages, setMessages] = useState([]);
+    const [newMessage, setNewMessage] = useState("");
+    const [partnerName, setPartnerName] = useState("Utilisateur");
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      let mounted = true;
+      const loadMessages = async () => {
+        if (request.conversationId) {
+          try {
+            const data = await apiCall(`/conversations/${request.conversationId}/messages`);
+            if (mounted) {
+              setMessages(data.messages || []);
+              setLoading(false);
+            }
+          } catch (err) {
+            console.error('Error loading messages:', err);
+            if (mounted) setLoading(false);
+          }
+        }
+      };
+      loadMessages();
+
+      const partnerId = currentUser.id === request.studentId ? request.tutorId : request.studentId;
+      if (partnerId && request.tutor) {
+        setPartnerName(`${request.tutor.firstName} ${request.tutor.lastName}`);
+      } else if (partnerId && request.student) {
+        setPartnerName(`${request.student.firstName} ${request.student.lastName}`);
+      }
+
+      const interval = setInterval(loadMessages, 2000);
+      return () => { mounted = false; clearInterval(interval); };
+    }, [request.id, request.conversationId, currentUser.id, request.tutor, request.student]);
+
+    const handleSend = async (e) => {
+      e.preventDefault();
+      if (!newMessage.trim() || !request.conversationId) return;
+      try {
+        const data = await apiCall(`/conversations/${request.conversationId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ content: newMessage }),
+        });
+        setMessages([...messages, data]);
+        setNewMessage("");
+      } catch (err) {
+        console.error('Error sending message:', err);
+      }
+    };
+
+    if (loading) {
+      return (
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 h-[600px] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 h-[600px] flex flex-col overflow-hidden">
+        <div className="bg-indigo-600 p-4 flex items-center gap-3 text-white">
+          <button onClick={onBack} className="hover:bg-indigo-700 p-1 rounded" title="Retour">
+            <LIcon name="users" className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <h3 className="font-bold">{partnerName}</h3>
+            <p className="text-xs text-indigo-200">{request.subject} • {request.slotId}</p>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+          {messages.map((msg) => {
+            const isMe = msg.senderId === currentUser.id;
+            return (
+              <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[75%] p-3 rounded-xl shadow-sm text-sm ${
+                  isMe ? "bg-indigo-600 text-white rounded-br-none" : "bg-white text-gray-800 border border-gray-100 rounded-bl-none"
+                }`}>
+                  <p>{msg.content}</p>
+                  <p className={`text-[10px] mt-1 text-right ${isMe ? "text-indigo-200" : "text-gray-400"}`}>
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+          {messages.length === 0 && <p className="text-center text-gray-400 text-sm">Aucun message.</p>}
+        </div>
+
+        <form onSubmit={handleSend} className="p-4 bg-white border-t border-gray-100 flex gap-2">
+          <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Écrivez votre message..."
+            className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+          <button type="submit" className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 transition-colors" title="Envoyer">
+            <LIcon name="send" className="w-5 h-5" />
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  function TutoreMode({ currentUser }) {
+    const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0]);
+    const [selectedSlot, setSelectedSlot] = useState(null);
+    const [availableTutors, setAvailableTutors] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [broadcastSent, setBroadcastSent] = useState(false);
+    const [view, setView] = useState("CALENDAR");
+    const [activeChatRequest, setActiveChatRequest] = useState(null);
+
+    useEffect(() => {
+      let cancelled = false;
+      if (selectedSlot) {
+        setLoading(true);
+        apiCall(`/match?subject=${encodeURIComponent(selectedSubject)}&level=${encodeURIComponent(currentUser.classLevel)}&slotId=${encodeURIComponent(selectedSlot)}`)
+          .then((data) => {
+            if (!cancelled) {
+              setAvailableTutors(data.tutors || []);
+              setLoading(false);
+            }
+          })
+          .catch((err) => {
+            console.error('Error fetching tutors:', err);
+            if (!cancelled) {
+              setAvailableTutors([]);
+              setLoading(false);
+            }
+          });
+      } else {
+        setAvailableTutors([]);
+      }
+      return () => { cancelled = true; };
+    }, [selectedSlot, selectedSubject, currentUser.id, currentUser.classLevel]);
+
+    const handleRequestHelp = async (tutor) => {
+      if (!selectedSlot) return;
+      try {
+        const req = await apiCall('/requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            studentId: currentUser.id,
+            tutorId: tutor.id,
+            subject: selectedSubject,
+            level: currentUser.classLevel,
+            slotId: selectedSlot,
+            date: new Date().toISOString(),
+          }),
+        });
+        setActiveChatRequest(req);
+        setView("CHAT");
+      } catch (err) {
+        alert('Erreur lors de la création de la demande: ' + err.message);
+      }
+    };
+
+    const handleBroadcast = async () => {
+      if (!selectedSlot) return;
+      setLoading(true);
+      try {
+        const data = await apiCall('/calls', {
+          method: 'POST',
+          body: JSON.stringify({
+            subject: selectedSubject,
+            level: currentUser.classLevel,
+            slotId: selectedSlot,
+            date: new Date().toISOString(),
+          }),
+        });
+        setLoading(false);
+        setBroadcastSent(true);
+        setTimeout(() => setBroadcastSent(false), 2500);
+        setSelectedSlot(null);
+      } catch (err) {
+        alert('Erreur lors de l\'appel: ' + err.message);
+        setLoading(false);
+      }
+    };
+
+    if (view === "CHAT" && activeChatRequest) {
+      return <ChatInterface request={activeChatRequest} currentUser={currentUser} onBack={() => setView("CALENDAR")} />;
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <LIcon name="search" className="w-5 h-5 text-indigo-500" /> Trouver un tuteur
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Matière</label>
+              <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)}
+                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2.5 border">
+                {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Mon Niveau</label>
+              <div className="p-2.5 bg-gray-100 rounded-lg text-gray-600 border border-transparent">{currentUser.classLevel}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <h3 className="text-md font-semibold text-gray-700 mb-4">Disponibilités de la semaine</h3>
+          <div className="grid grid-cols-6 gap-2 text-sm">
+            <div className="p-2"></div>
+            {DAYS.map((d) => <div key={d} className="p-2 font-medium text-center text-gray-500">{d}</div>)}
+
+            {TIME_SLOTS.map((slot) => (
+              <React.Fragment key={slot.id}>
+                <div className="p-2 text-gray-400 font-medium flex items-center justify-end text-xs">{slot.label}</div>
+                {DAYS.map((day) => {
+                  const slotId = `${day}_${slot.id}`;
+                  return (
+                    <button key={slotId} onClick={() => setSelectedSlot(slotId)}
+                      className="h-16 rounded-lg border border-dashed border-gray-200 hover:border-indigo-500 hover:bg-indigo-50 transition-colors flex items-center justify-center group relative">
+                      <div className="hidden group-hover:flex absolute inset-0 items-center justify-center text-indigo-600 font-medium">Voir</div>
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {selectedSlot && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Tuteurs disponibles</h3>
+                  <p className="text-sm text-gray-500">{selectedSubject} • {selectedSlot.replace("_", " ")}</p>
+                </div>
+                <button onClick={() => setSelectedSlot(null)} className="p-2 hover:bg-gray-100 rounded-full" title="Fermer">
+                  <LIcon name="x-circle" className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {loading ? (
+                  <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+                ) : availableTutors.length > 0 ? (
+                  availableTutors.map((tutor) => (
+                    <div key={tutor.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-white hover:shadow-md transition-all border border-gray-100">
+                      <div className="flex items-center gap-4">
+                        <img src={tutor.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${tutor.firstName}`} className="w-12 h-12 rounded-full bg-white" alt="" />
+                        <div>
+                          <h4 className="font-bold text-gray-900">{tutor.firstName} {tutor.lastName}</h4>
+                          <div className="flex gap-2 text-xs mt-1 flex-wrap">
+                            <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">{tutor.classLevel}</span>
+                            {tutor.specialties?.map((s) => <span key={s} className="bg-gray-200 text-gray-600 px-2 py-0.5 rounded">{s}</span>)}
+                          </div>
+                        </div>
+                      </div>
+                      <Button onClick={() => handleRequestHelp(tutor)}>Contacter</Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="bg-gray-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <LIcon name="users" className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <p className="text-gray-900 font-medium">Aucun tuteur disponible pour ce créneau.</p>
+                    <p className="text-gray-500 text-sm mb-6">Lancez un appel pour notifier tous les tuteurs potentiels.</p>
+                    <Button onClick={handleBroadcast} variant="primary" className="w-full justify-center">📢 Lancer un appel de tutorat</Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {broadcastSent && (
+          <div className="fixed bottom-6 right-6 bg-emerald-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2">
+            <LIcon name="check-circle" className="w-5 h-5" /> Appel envoyé aux tuteurs !
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function TutorantMode({ currentUser, onToggleTutorantEnabled, onReloadUser }) {
+    const [activeView, setActiveView] = useState("DASHBOARD");
+    const [requests, setRequests] = useState([]);
+    const [prefs, setPrefs] = useState(undefined);
+    const [activeChat, setActiveChat] = useState(null);
+
+    const loadData = async () => {
+      try {
+        const reqData = await apiCall(`/requests?mode=tutorant`);
+        setRequests(reqData.requests || []);
+
+        const prefsData = await apiCall('/tutorant/preferences');
+        setPrefs(prefsData);
+      } catch (err) {
+        console.error('Error loading data:', err);
+      }
+    };
+
+    useEffect(() => {
+      loadData();
+    }, [activeView, currentUser.id]);
+
+    const handleStatusChange = async (reqId, status) => {
+      try {
+        await apiCall(`/requests/${reqId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status }),
+        });
+        setRequests((prev) => prev.map((r) => (r.id === reqId ? { ...r, status } : r)));
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+      }
+    };
+
+    const handleToggleSlot = async (slotId) => {
+      if (!prefs) return;
+      const newSlots = prefs.availableSlots?.includes(slotId) 
+        ? prefs.availableSlots.filter((s) => s !== slotId) 
+        : [...(prefs.availableSlots || []), slotId];
+      const newPrefs = { ...prefs, availableSlots: newSlots };
+      setPrefs(newPrefs);
+      try {
+        await apiCall('/tutorant/availability', {
+          method: 'PUT',
+          body: JSON.stringify({ availableSlots: newSlots }),
+        });
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+      }
+    };
+
+    const handleToggleSubject = async (sub) => {
+      if (!prefs) return;
+      const newSubs = prefs.subjects?.includes(sub) 
+        ? prefs.subjects.filter((s) => s !== sub) 
+        : [...(prefs.subjects || []), sub];
+      const newPrefs = { ...prefs, subjects: newSubs };
+      setPrefs(newPrefs);
+      try {
+        await apiCall('/tutorant/preferences', {
+          method: 'PUT',
+          body: JSON.stringify({ subjects: newSubs, levels: prefs.levels || [], availableOutsideHours: prefs.availableOutsideHours || false }),
+        });
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+      }
+    };
+
+    if (activeChat) return <ChatInterface request={activeChat} currentUser={currentUser} onBack={() => setActiveChat(null)} />;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-4 border-b border-gray-200 pb-1">
+          <button onClick={() => setActiveView("DASHBOARD")}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${activeView === "DASHBOARD" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+            Tableau de bord
+          </button>
+          <button onClick={() => setActiveView("PREFERENCES")}
+            className={`pb-3 px-1 font-medium text-sm border-b-2 transition-colors ${activeView === "PREFERENCES" ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+            Mes Préférences & Dispo
+          </button>
+        </div>
+
+        {activeView === "DASHBOARD" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden col-span-1 lg:col-span-2">
+              <div className="bg-yellow-50 px-6 py-3 border-b border-yellow-100 flex justify-between items-center">
+                <h3 className="font-bold text-yellow-800 flex items-center gap-2"><LIcon name="clock" className="w-4 h-4" /> Demandes en attente</h3>
+                <span className="bg-yellow-200 text-yellow-800 text-xs px-2 py-0.5 rounded-full">{requests.filter((r) => r.status === "PENDING").length}</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {requests.filter((r) => r.status === "PENDING").length === 0 && <p className="p-6 text-gray-400 italic text-center">Aucune demande en attente.</p>}
+                {requests.filter((r) => r.status === "PENDING").map((req) => (
+                  <div key={req.id} className="p-4 flex items-center justify-between hover:bg-gray-50">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-bold text-gray-900">{req.subject}</span>
+                        {req.isBroadcast && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full flex items-center gap-1"><LIcon name="bell" className="w-3 h-3" /> Appel général</span>}
+                      </div>
+                      <p className="text-sm text-gray-600">Créneau: {req.slotId.replace("_", " ")}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="success" className="text-xs px-3 py-1" onClick={() => handleStatusChange(req.id, "ACCEPTED")}>Accepter</Button>
+                      <Button variant="danger" className="text-xs px-3 py-1" onClick={() => handleStatusChange(req.id, "REJECTED")}>Refuser</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-emerald-50 px-6 py-3 border-b border-emerald-100">
+                <h3 className="font-bold text-emerald-800 flex items-center gap-2"><LIcon name="check-circle" className="w-4 h-4" /> Séances à venir</h3>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {requests.filter((r) => r.status === "ACCEPTED").map((req) => (
+                  <div key={req.id} className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-bold text-gray-900">{req.subject}</p>
+                        <p className="text-sm text-gray-500">{req.slotId.replace("_", " ")}</p>
+                      </div>
+                      <button onClick={() => setActiveChat(req)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-full" title="Ouvrir le chat">
+                        <LIcon name="message-square" className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <Button variant="secondary" className="w-full text-xs mt-2" onClick={() => handleStatusChange(req.id, "HONORED")}>Marquer comme terminé</Button>
+                  </div>
+                ))}
+                {requests.filter((r) => r.status === "ACCEPTED").length === 0 && <p className="p-6 text-gray-400 italic text-center">Aucune séance prévue.</p>}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-gray-50 px-6 py-3 border-b border-gray-100"><h3 className="font-bold text-gray-700">Historique</h3></div>
+              <div className="p-4 max-h-64 overflow-y-auto space-y-3">
+                {requests.filter((r) => r.status === "HONORED" || r.status === "REJECTED").map((req) => (
+                  <div key={req.id} className="flex justify-between text-sm">
+                    <span className="text-gray-600">{req.subject}</span>
+                    <Badge color={req.status === "HONORED" ? "green" : "red"}>{req.status}</Badge>
+                  </div>
+                ))}
+                {requests.filter((r) => r.status === "HONORED" || r.status === "REJECTED").length === 0 && <p className="text-gray-400 italic text-center">Aucun historique.</p>}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1 space-y-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-gray-900 mb-4">Matières enseignées</h3>
+                <div className="space-y-2">
+                  {SUBJECTS.map((sub) => (
+                    <label key={sub} className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={!!prefs?.subjects?.includes(sub)} onChange={() => handleToggleSubject(sub)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                      <span className="text-gray-700">{sub}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-gray-900 mb-4">Visibilité</h3>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700">Mode Tutorant actif</span>
+                  <button onClick={onToggleTutorantEnabled}
+                    className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors ${currentUser.isTutorantEnabled ? "bg-indigo-600" : "bg-gray-300"}`}
+                    title="Activer/Désactiver">
+                    <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${currentUser.isTutorantEnabled ? "translate-x-6" : ""}`}></div>
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Désactivez pour ne plus apparaître dans les recherches.</p>
+              </div>
+            </div>
+
+            <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h3 className="font-bold text-gray-900 mb-4">Mon emploi du temps</h3>
+              <p className="text-sm text-gray-500 mb-4">Cliquez sur les créneaux où vous êtes libre pour donner des cours.</p>
+
+              <div className="grid grid-cols-6 gap-1 text-xs select-none">
+                <div className="p-2"></div>
+                {DAYS.map((d) => <div key={d} className="p-2 font-medium text-center text-gray-500">{d.slice(0, 3)}</div>)}
+
+                {TIME_SLOTS.map((slot) => (
+                  <React.Fragment key={slot.id}>
+                    <div className="p-2 text-gray-400 font-medium flex items-center justify-end">{slot.id}</div>
+                    {DAYS.map((day) => {
+                      const slotId = `${day}_${slot.id}`;
+                      const isSelected = !!prefs?.availableSlots?.includes(slotId);
+                      return (
+                        <div key={slotId} onClick={() => handleToggleSlot(slotId)}
+                          className={`h-12 rounded cursor-pointer transition-all border flex items-center justify-center ${isSelected ? "bg-indigo-600 border-indigo-600 text-white shadow-sm" : "bg-white border-gray-100 hover:border-gray-300"}`}>
+                          {isSelected && <LIcon name="check-circle" className="w-4 h-4" />}
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function AdminDashboard() {
+    const [allMessages, setAllMessages] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      loadMessages();
+      const interval = setInterval(loadMessages, 5000);
+      return () => clearInterval(interval);
+    }, []);
+
+    const loadMessages = async () => {
+      try {
+        const data = await apiCall('/mod/reports');
+        const messages = [];
+        for (const report of data.reports || []) {
+          if (report.conversation) {
+            const convData = await apiCall(`/mod/conversations/${report.conversation.id}`);
+            for (const msg of convData.messages || []) {
+              messages.push({
+                ...msg,
+                reporter: report.reporter,
+                conversationId: report.conversation.id,
+              });
+            }
+          }
+        }
+        setAllMessages(messages);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error loading admin data:', err);
+        setLoading(false);
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <LIcon name="shield" className="w-6 h-6 text-indigo-600" /> Panneau de Modération
+        </h2>
+        <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 bg-gray-50">
+            <h3 className="font-bold text-gray-700">Flux de messages (Tout voir)</h3>
+          </div>
+          {loading ? (
+            <div className="p-8 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="p-3">Horodatage</th>
+                    <th className="p-3">Expéditeur</th>
+                    <th className="p-3">Message</th>
+                    <th className="p-3">ID Conversation</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {allMessages.map((msg, idx) => (
+                    <tr key={`${msg.conversationId}-${msg.id}-${idx}`} className="hover:bg-gray-50">
+                      <td className="p-3 text-gray-500">{new Date(msg.createdAt).toLocaleString()}</td>
+                      <td className="p-3 font-medium">{msg.sender?.firstName} {msg.sender?.lastName}</td>
+                      <td className="p-3">{msg.content}</td>
+                      <td className="p-3 text-gray-400 font-mono text-xs">{msg.conversationId}</td>
+                    </tr>
+                  ))}
+                  {allMessages.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-gray-400">Aucun message dans le système.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function AgoraApp() {
+    const [currentUser, setCurrentUser] = useState(null);
+    const [appMode, setAppMode] = useState("TUTORE");
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        apiCall('/auth/me')
+          .then((data) => {
+            setCurrentUser(data.user);
+            setAppMode(data.user.role === "MODERATOR" ? "ADMIN" : "TUTORE");
+          })
+          .catch(() => {
+            localStorage.removeItem('accessToken');
+          })
+          .finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    }, []);
+
+    const handleLogin = (user) => {
+      setCurrentUser(user);
+      setAppMode(user.role === "MODERATOR" ? "ADMIN" : "TUTORE");
+    };
+
+    const handleLogout = () => {
+      apiCall('/auth/logout', { method: 'POST' }).catch(() => {});
+      localStorage.removeItem('accessToken');
+      setCurrentUser(null);
+      setAppMode("TUTORE");
+    };
+
+    const handleToggleTutorantEnabled = async () => {
+      if (!currentUser) return;
+      try {
+        const newEnabled = !currentUser.isTutorantEnabled;
+        await apiCall('/tutorant/enabled', {
+          method: 'PATCH',
+          body: JSON.stringify({ enabled: newEnabled }),
+        });
+        setCurrentUser({ ...currentUser, isTutorantEnabled: newEnabled });
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+      }
+    };
+
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        </div>
+      );
+    }
+
+    if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+
+    return (
+      <div className="min-h-screen bg-gray-50 font-sans text-gray-900 flex flex-col">
+        <header className="bg-white shadow-sm sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg"><LIcon name="book-open" className="w-6 h-6 text-white" /></div>
+              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">Agora</span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {!currentUser.emailVerified && (
+                <Badge color="yellow">Email non vérifié</Badge>
+              )}
+
+              {currentUser.role !== "MODERATOR" && (
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                  <button onClick={() => setAppMode("TUTORE")}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${appMode === "TUTORE" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    Je cherche de l'aide
+                  </button>
+                  <button onClick={() => setAppMode("TUTORANT")}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${appMode === "TUTORANT" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    Je suis tuteur
+                  </button>
+                </div>
+              )}
+
+              <div className="h-8 w-px bg-gray-200"></div>
+
+              <div className="flex items-center gap-3">
+                <div className="text-right hidden sm:block">
+                  <p className="text-sm font-medium text-gray-900">{currentUser.firstName} {currentUser.lastName}</p>
+                  <p className="text-xs text-gray-500">{currentUser.classLevel}</p>
+                </div>
+                <img src={currentUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser.firstName}`} alt="Profile" className="w-10 h-10 rounded-full border border-gray-200 bg-gray-50" />
+                <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 transition-colors" title="Déconnexion">
+                  <LIcon name="log-out" className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {appMode === "ADMIN" ? <AdminDashboard /> : appMode === "TUTORE" ? <TutoreMode currentUser={currentUser} /> : <TutorantMode currentUser={currentUser} onToggleTutorantEnabled={handleToggleTutorantEnabled} />}
+        </main>
+
+        <footer className="bg-white border-t border-gray-200 mt-auto">
+          <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center text-sm text-gray-500">
+            <p>© 2026 Agora. Entraide scolaire.</p>
+            <div className="flex gap-4">
+              <button className="hover:text-indigo-600">Contacter l'équipe péda</button>
+              <button className="hover:text-red-600 flex items-center gap-1"><LIcon name="alert-circle" className="w-3 h-3" /> Signaler un abus</button>
+            </div>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<AgoraApp />);
+  </script>
+</body>
+</html>
