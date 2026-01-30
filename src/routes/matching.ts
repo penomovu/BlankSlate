@@ -118,31 +118,6 @@ router.post('/requests', async (req, res) => {
       return res.status(400).json({ error: 'Impossible de créer une demande pour vous-même' });
     }
 
-    let conversationId: string | null = null;
-
-    if (data.tutorId) {
-      const existingConversation = await prisma.conversation.findFirst({
-        where: {
-          OR: [
-            { participant1Id: userId, participant2Id: data.tutorId },
-            { participant1Id: data.tutorId, participant2Id: userId },
-          ],
-        },
-      });
-
-      if (!existingConversation) {
-        const conversation = await prisma.conversation.create({
-          data: {
-            participant1Id: userId,
-            participant2Id: data.tutorId,
-          },
-        });
-        conversationId = conversation.id;
-      } else {
-        conversationId = existingConversation.id;
-      }
-    }
-
     const request = await prisma.tutoringRequest.create({
       data: {
         studentId: userId,
@@ -151,9 +126,28 @@ router.post('/requests', async (req, res) => {
         level: data.level,
         slotId: data.slotId,
         date: new Date(data.date),
-        conversationId,
+      },
+      include: {
+        conversation: {
+          select: {
+            id: true,
+          },
+        },
       },
     });
+
+    let conversationId: string | null = request.conversation?.id ?? null;
+
+    if (data.tutorId && !conversationId) {
+      const conversation = await prisma.conversation.create({
+        data: {
+          participant1Id: userId,
+          participant2Id: data.tutorId,
+          requestId: request.id,
+        },
+      });
+      conversationId = conversation.id;
+    }
 
     if (data.tutorId) {
       const student = await prisma.user.findUnique({
@@ -179,7 +173,7 @@ router.post('/requests', async (req, res) => {
       date: request.date.toISOString(),
       status: request.status,
       isBroadcast: request.isBroadcast,
-      conversationId: request.conversationId,
+      conversationId,
       createdAt: request.createdAt.toISOString(),
     });
   } catch (error) {
@@ -226,6 +220,11 @@ router.get('/requests', async (req, res) => {
             avatar: true,
           },
         },
+        conversation: {
+          select: {
+            id: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -241,7 +240,7 @@ router.get('/requests', async (req, res) => {
         date: req.date.toISOString(),
         status: req.status,
         isBroadcast: req.isBroadcast,
-        conversationId: req.conversationId,
+        conversationId: req.conversation?.id ?? null,
         createdAt: req.createdAt.toISOString(),
         student: req.student ? {
           id: req.student.id,
@@ -298,8 +297,12 @@ router.patch('/requests/:id/status', async (req, res) => {
         },
       });
 
-      if (!updated.conversationId) {
-        const conversation = await prisma.conversation.create({
+      const existingConversation = await prisma.conversation.findUnique({
+        where: { requestId: id },
+      });
+
+      if (!existingConversation) {
+        await prisma.conversation.create({
           data: {
             participant1Id: request.studentId,
             participant2Id: userId,
