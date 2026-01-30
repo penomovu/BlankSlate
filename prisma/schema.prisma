@@ -1,0 +1,180 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./agora.db"
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  firstName         String
+  lastName          String
+  classLevel        String    @default("SECONDE")
+  specialties       String    @default("[]")
+  options           String    @default("[]")
+  avatar            String?
+  role              String    @default("STUDENT")
+  emailVerified     Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  tutorantPreferences     TutorantPreference?
+  weeklyAvailabilitySlots  WeeklyAvailabilitySlot[]
+  availabilityExceptions  AvailabilityException[]
+  sentRequests            TutoringRequest[]  @relation("StudentRequests")
+  receivedRequests        TutoringRequest[]  @relation("TutorRequests")
+  sentMessages            Message[]          @relation("MessageSender")
+  receivedConversations   Conversation[]     @relation("ConversationParticipant2")
+  initiatedConversations  Conversation[]     @relation("ConversationParticipant1")
+  notifications           Notification[]
+  abuseReports            AbuseReport[]
+
+  @@index([email])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model TutorantPreference {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  subjects                String   @default("[]")
+  levels                  String   @default("[]")
+  availableOutsideHours   Boolean  @default(false)
+  enabled                 Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WeeklyAvailabilitySlot {
+  id        String   @id @default(cuid())
+  userId    String
+  day       String
+  slotId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, slotId])
+  @@index([userId])
+}
+
+model AvailabilityException {
+  id            String   @id @default(cuid())
+  userId        String
+  date          DateTime
+  isAvailable   Boolean
+  reason        String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model TutoringRequest {
+  id          String   @id @default(cuid())
+  studentId   String
+  tutorId     String?
+  subject     String
+  level       String
+  slotId      String
+  date        DateTime
+  status      String   @default("PENDING")
+  isBroadcast Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  student     User     @relation("StudentRequests", fields: [studentId], references: [id], onDelete: Cascade)
+  tutor       User?    @relation("TutorRequests", fields: [tutorId], references: [id], onDelete: SetNull)
+  conversation Conversation?
+
+  @@index([studentId])
+  @@index([tutorId])
+  @@index([status])
+}
+
+model Conversation {
+  id             String   @id @default(cuid())
+  requestId      String?  @unique
+  participant1Id String
+  participant2Id String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  request        TutoringRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  participant1   User     @relation("ConversationParticipant1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant2   User     @relation("ConversationParticipant2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  messages       Message[]
+  abuseReports   AbuseReport[]
+
+  @@index([participant1Id])
+  @@index([participant2Id])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  read           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User     @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AbuseReport {
+  id             String   @id @default(cuid())
+  reporterId     String
+  conversationId String?
+  messageId      String?
+  reason         String
+  description    String
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  reporter       User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([reporterId])
+  @@index([status])
+}
