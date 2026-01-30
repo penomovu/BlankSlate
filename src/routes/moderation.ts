@@ -138,7 +138,12 @@ router.get('/reports', authenticate, requireModerator, async (req, res) => {
 
 router.get('/conversations/:id', authenticate, requireModerator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Identifiant de conversation invalide' });
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id },
@@ -213,7 +218,12 @@ router.get('/conversations/:id', authenticate, requireModerator, async (req, res
 
 router.patch('/reports/:id', authenticate, requireModerator, async (req, res) => {
   try {
-    const { id } = req.params;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Identifiant de signalement invalide' });
+    }
     const { status } = req.body;
 
     if (!['OPEN', 'REVIEWING', 'CLOSED'].includes(status)) {
